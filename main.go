@@ -10,6 +10,7 @@ import(
 	"time"
 	"github.com/johannesalke/pokedex/internal/pokecache"
 	"github.com/johannesalke/pokedex/internal/APIparsing"
+	"math/rand"
 
 )
 
@@ -24,6 +25,7 @@ type Config struct {
 	nextMapUrl string
 	prevMapUrl string
 	cache pokecache.Pokecache
+	pokedex map[string]Pokemon
 }
 
 type location struct{
@@ -36,6 +38,58 @@ type locationResponse struct{
 	Previous string	`json:"previous"`
 	Results []location	`json:"results"`
 }
+/*
+type Pokedex struct{
+	CaughtPokemon 
+}
+*/
+type Pokemon struct{
+	Name string
+	Height int
+	Weight int
+	Stats []struct {
+		BaseStat int `json:"base_stat"`
+		Effort   int `json:"effort"`
+		Stat     struct {
+			Name string `json:"name"`
+			URL  string `json:"url"`
+		} `json:"stat"`
+	} `json:"stats"`
+	Types []struct {
+		Slot int `json:"slot"`
+		Type struct {
+			Name string `json:"name"`
+			URL  string `json:"url"`
+		} `json:"type"`
+	}
+}
+/*
+type Pokestat struct{
+		BaseStat int `json:"base_stat"`
+		Effort   int `json:"effort"`
+		Stat     struct {
+			Name string `json:"name"`
+			URL  string `json:"url"`
+		} `json:"stat"`
+} 
+
+type Poketype struct{
+	
+	Slot int `json:"slot"`
+	Type struct {
+		Name string `json:"name"`
+		URL  string `json:"url"`
+	} `json:"type"`
+	 
+}
+
+*/
+
+
+
+
+
+
 
 func cleanInput(text string) []string {
 	text = strings.ToLower(text)
@@ -46,15 +100,15 @@ func cleanInput(text string) []string {
 
 
 
- 
-
-
 
 func main(){
 	cfg := Config{
 		nextMapUrl: "http://pokeapi.co/api/v2/location-area/?limit=20&offset=0", 
 		prevMapUrl: "",
-		cache: pokecache.NewCache(120*time.Second)}
+		cache: pokecache.NewCache(120*time.Second),
+		pokedex: make(map[string]Pokemon),
+	
+	}
 
 
 	
@@ -117,6 +171,16 @@ return map[string]cliCommand{
 			name:"explore <location>",
 			description: "Explore a location specified by the second word entered.",
 			callback: commandExplore,
+		},
+		"catch":{
+			name: "catch <pokemon>",
+			description: "Attempt to catch a specified pokemon.",
+			callback: commandCatch,
+		},
+		"inspect":{
+			name: "inspect <pokemon>",
+			description: "Inspect the basic properties of a pokemon you have caught",
+			callback: commandInspect,
 		},
 	}
 	}
@@ -260,3 +324,106 @@ func commandExplore(cfg *Config, args ...string) error{
 
 	return nil
 }
+
+func commandCatch(cfg *Config, args ...string) error{
+	pokemon := args[1]
+	baseurl := "https://pokeapi.co/api/v2/pokemon/"
+	full_url := baseurl + pokemon
+
+	var bodyContents []byte
+	bodyContents, exists := cfg.cache.Get(full_url)
+	if exists {
+
+		fmt.Print("=============\nRetrieved from Cache\n===================\n")
+	} else { //If it was cached
+	res, err := http.Get(full_url)
+	if err != nil {return err}
+	
+	//fmt.Printf("%v\n",res.Body)
+	
+	
+	defer res.Body.Close()
+	bodyContents,err = io.ReadAll(res.Body)
+	if err != nil {return err}
+	//fmt.Printf("%v\n",string(bodyContents))
+	cfg.cache.Add(full_url,bodyContents)
+	} //If it has to be gotten via API.
+
+	var resp APIparsing.PokemonResponse
+	err := json.Unmarshal(bodyContents, &resp)
+	if err != nil { return err}
+    //fmt.Printf("%v\n",resp)
+	
+	baseExperience := resp.BaseExperience
+
+	fmt.Print("Throwing a Pokeball at squirtle...\n")
+	if rand.Intn(baseExperience+100) > baseExperience {
+		fmt.Printf("You have caught %v!\n",pokemon)
+		cfg.pokedex[pokemon] = Pokemon{
+			Name: resp.Name,
+			Weight: resp.Weight,
+			Height: resp.Height,
+			Types: resp.Types,
+			Stats: resp.Stats,
+
+		}
+
+	} else {
+		fmt.Printf("But %v escaped...\n",pokemon)
+	}
+	
+
+
+	return nil
+}
+
+func commandInspect(cfg *Config, args ...string) error{
+	pokemon := args[1]
+	pokeData,exists := cfg.pokedex[pokemon]
+	if !exists{return fmt.Errorf("You have not yet caught this pokemon!")}
+
+	fmt.Printf("Name: %s\n",pokeData.Name)
+	fmt.Printf("Height: %d\n",pokeData.Height)
+	fmt.Printf("Weight: %d\n",pokeData.Weight)
+	fmt.Print("Stats:\n")
+	Stats := pokeData.Stats
+	for _,stat := range Stats{
+		fmt.Printf("-%s: %d\n",stat.Stat.Name,stat.BaseStat)
+	}
+	fmt.Print("Types:\n")
+	Types := pokeData.Types
+	for _,pType := range Types{
+		fmt.Printf("-%s\n",pType.Type.Name)
+	}
+
+
+
+	/*
+	Stats []struct {
+		BaseStat int `json:"base_stat"`
+		Effort   int `json:"effort"`
+		Stat     struct {
+			Name string `json:"name"`
+			URL  string `json:"url"`
+		} `json:"stat"`
+	} `json:"stats"`
+
+			Types []struct {
+		Slot int `json:"slot"`
+		Type struct {
+			Name string `json:"name"`
+			URL  string `json:"url"`
+		} `json:"type"`
+	}
+	*/
+
+
+
+
+	
+
+
+	return nil
+}
+
+
